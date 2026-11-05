@@ -7,7 +7,10 @@ deb=$(realpath "${1:?Pass the .deb path}")
 image=${2:-ubuntu:24.04}
 # With Docker's unlimited open-file limit, Ubuntu's cupsd 2.4.7 fails at startup
 # ("cupsdDoSelect() failed - Bad address"): use an ordinary limit.
-container=$(docker create --ulimit nofile=65536:65536 "$image" sleep infinity)
+# Hide the host's USB bus (visible through /sys), so a printer plugged into the
+# host does not change the results.
+container=$(docker create --ulimit nofile=65536:65536 \
+    --mount type=tmpfs,destination=/sys/bus/usb "$image" sleep infinity)
 trap 'docker rm -f "$container" >/dev/null' EXIT HUP INT TERM
 docker start "$container" >/dev/null
 docker cp "$deb" "$container:/tmp/package.deb"

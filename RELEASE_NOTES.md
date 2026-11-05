@@ -1,4 +1,4 @@
-One package for **Ubuntu 24.04 and Debian 13**: `fichero-linux-printer_0.2.0-1_all.deb`.
+One package for **Ubuntu 24.04, Debian 12 and Debian 13**: `fichero-linux-printer_0.2.0-1_all.deb`.
 
 ```sh
 sha256sum -c SHA256SUMS
@@ -20,4 +20,6 @@ sudo apt install ./fichero-linux-printer_0.2.0-1_all.deb
   calibrated defaults: the print was about 0.5 mm too low and 1 mm too far right.
 
 Upgrading from 0.1.0 should keep an existing `FICHERO_USB` queue (same URI); this path is not yet tested.
-Printing on Debian 13 and the new backend still need to be confirmed on hardware.
+Hardware-verified on Debian 13 (queue added on plug-in, centred text + QR label).
+Ubuntu 24.04 and Debian 12 are tested in containers (install, hotplug script,
+upgrade, rendering, removal); the backend sends the same USB bytes everywhere.

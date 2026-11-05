@@ -1,5 +1,5 @@
 #!/bin/sh
-# Build the architecture-independent package (Ubuntu 24.04, Debian 13, ...).
+# Build the architecture-independent package (Ubuntu 24.04, Debian 12 and 13, ...).
 # Needs only dpkg-deb; no network, no Python tooling, no root.
 set -eu
 repo=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)

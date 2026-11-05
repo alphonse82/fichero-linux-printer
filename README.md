@@ -5,7 +5,7 @@ labels (text, QR codes, barcodes) from any Linux application.
 
 [![CI](https://github.com/krouis/fichero-linux-printer/actions/workflows/packages.yml/badge.svg)](https://github.com/krouis/fichero-linux-printer/actions/workflows/packages.yml)
 
-One architecture-independent package for **Ubuntu 24.04 and Debian 13** (and
+One architecture-independent package for **Ubuntu 24.04, Debian 12 and Debian 13** (and
 other Debian-based systems with CUPS 2.x). It only depends on distribution
 packages: `python3`, `python3-usb`, `cups`, `cups-filters` and `ghostscript`.
 
@@ -102,6 +102,7 @@ sudo apt install python3-pytest python3-usb cups cups-filters ghostscript
 python3 -m pytest -q tests          # fake USB device, real Ghostscript/CUPS rendering
 sh scripts/build-deb.sh             # dist/fichero-linux-printer_VERSION-1_all.deb
 sh scripts/test-deb.sh dist/*.deb debian:13     # lifecycle test in a disposable container
+sh scripts/test-deb.sh dist/*.deb debian:12
 sh scripts/test-deb.sh dist/*.deb ubuntu:24.04
 ```
 
@@ -112,7 +113,7 @@ offline, simulates hotplug, checks queue preservation, upgrade, rendering as
 user `lp`, remove and purge.
 
 To release: update `VERSION` and `RELEASE_NOTES.md`, then push a `vX.Y.Z` tag.
-CI builds, tests on Ubuntu 24.04 and Debian 13, and publishes the release.
+CI builds, tests on Ubuntu 24.04, Debian 12 and Debian 13, and publishes the release.
 
 ## License
 
