@@ -1,0 +1,59 @@
+name: Publish to GitHub Packages
+
+# Pushes a release's .deb to ghcr.io as an OCI artifact, so it is listed in the
+# repository's "Packages" section. GitHub Packages has no Debian registry: get
+# the file with `oras pull ghcr.io/OWNER/fichero-d11s-cups:VERSION`, then
+# `sudo apt install ./fichero-d11s-cups_*.deb`.
+on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to publish (vX.Y.Z)
+        required: true
+        type: string
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish (vX.Y.Z)
+        required: true
+        default: v0.1.0
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  ghcr:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download and verify the release package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" \
+            --pattern '*.deb' --pattern SHA256SUMS --dir dist
+          cd dist && sha256sum -c SHA256SUMS
+      - uses: oras-project/setup-oras@v2
+        with:
+          version: 1.3.6
+      - name: Push to ghcr.io
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.tag }}
+        run: |
+          echo "$GH_TOKEN" | oras login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          cd dist
+          deb=$(ls *.deb)
+          name=$(dpkg-deb -f "$deb" Package)
+          version=${TAG#v}
+          ref="ghcr.io/$(echo "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')/$name"
+          oras push "$ref:$version" \
+            --artifact-type application/vnd.debian.binary-package \
+            --annotation "org.opencontainers.image.source=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" \
+            --annotation "org.opencontainers.image.description=$(dpkg-deb -f "$deb" Description | head -1)" \
+            --annotation "org.opencontainers.image.licenses=MIT" \
+            --annotation "org.opencontainers.image.version=$(dpkg-deb -f "$deb" Version)" \
+            "$deb:application/vnd.debian.binary-package"
+          oras tag "$ref:$version" latest
+          echo "Published $ref:$version (also tagged latest)" >> "$GITHUB_STEP_SUMMARY"

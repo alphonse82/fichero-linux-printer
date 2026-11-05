@@ -98,3 +98,12 @@ jobs:
           gh release create "${{ github.ref_name }}" dist/*.deb dist/SHA256SUMS \
             --verify-tag --title "fichero-d11s-cups ${{ github.ref_name }}" \
             --notes-file RELEASE_NOTES.md
+
+  ghcr:
+    needs: release
+    permissions:
+      contents: read
+      packages: write
+    uses: ./.github/workflows/ghcr.yml
+    with:
+      tag: ${{ github.ref_name }}
