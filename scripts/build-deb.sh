@@ -26,12 +26,12 @@ cat > "$root/DEBIAN/control" <<CONTROL
 Package: fichero-linux-printer
 Version: $version-1
 Architecture: all
-Maintainer: krouis <krouis@users.noreply.github.com>
+Maintainer: Alphonse <ob_github@obconseil.eu>
 Section: utils
 Priority: optional
 Installed-Size: $(du -sk "$root/usr" | cut -f1)
 Depends: python3, python3-usb, cups (>= 2.4), cups (<< 3.0), cups-client, cups-filters, ghostscript
-Homepage: https://github.com/krouis/fichero-linux-printer
+Homepage: https://github.com/alphonse82/fichero-linux-printer
 Description: CUPS driver for AiYin D11s/FICHERO USB label printers
  Prints 14 x 30 mm gap labels (text, QR codes) from any application.
  The CUPS queue is added automatically when the printer is plugged in.

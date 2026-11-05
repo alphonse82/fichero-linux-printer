@@ -3,7 +3,10 @@
 CUPS driver for the AiYin D11s/FICHERO USB label printer: print 14 x 30 mm
 labels (text, QR codes, barcodes) from any Linux application.
 
-[![CI](https://github.com/krouis/fichero-linux-printer/actions/workflows/packages.yml/badge.svg)](https://github.com/krouis/fichero-linux-printer/actions/workflows/packages.yml)
+[![CI](https://github.com/alphonse82/fichero-linux-printer/actions/workflows/packages.yml/badge.svg)](https://github.com/alphonse82/fichero-linux-printer/actions/workflows/packages.yml)
+
+Personal, unofficial project: not affiliated with or supported by AiYin or
+FICHERO. Use at your own risk.
 
 One architecture-independent package for **Ubuntu 24.04, Debian 12 and Debian 13** (and
 other Debian-based systems with CUPS 2.x). It only depends on distribution
@@ -12,7 +15,7 @@ packages: `python3`, `python3-usb`, `cups`, `cups-filters` and `ghostscript`.
 ## Install
 
 Download the `.deb` and `SHA256SUMS` from
-[Releases](https://github.com/krouis/fichero-linux-printer/releases/latest), then:
+[Releases](https://github.com/alphonse82/fichero-linux-printer/releases/latest), then:
 
 ```sh
 sha256sum -c SHA256SUMS
