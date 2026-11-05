@@ -33,7 +33,7 @@ jobs:
           apt-get install -y -qq --no-install-recommends ca-certificates git \
             python3 python3-pytest python3-usb cups cups-client cups-filters ghostscript \
             python3-pil python3-numpy python3-bleak
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Fetch reference fichero-printer (test only, never packaged)
         run: |
           git init -q /opt/fichero-printer
@@ -50,13 +50,13 @@ jobs:
     needs: test
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Check release version matches tag
         if: startsWith(github.ref, 'refs/tags/')
         run: test "${{ github.ref_name }}" = "v$(cat VERSION)"
       - name: Build architecture-independent package
         run: sh scripts/build-deb.sh
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: deb
           path: dist/
@@ -71,8 +71,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: deb
           path: dist
@@ -86,8 +86,8 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
           name: deb
           path: dist
