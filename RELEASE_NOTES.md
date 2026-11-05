@@ -1,41 +1,23 @@
-First installable release for **Ubuntu 24.04 amd64 (x86-64)**.
-
-Print from normal Linux applications to AiYin D11s/FICHERO USB printers
-(`09c5:0200`) using 14 × 30 mm gap-separated labels.
-
-### Install
-
-Download the `.deb` and `SHA256SUMS`, verify the checksum, then run:
+One package for **Ubuntu 24.04 and Debian 13**: `fichero-linux-printer_0.2.0-1_all.deb`.
 
 ```sh
 sha256sum -c SHA256SUMS
-sudo apt install ./fichero-linux-printer_0.1.0-1_amd64.deb
+sudo apt install ./fichero-linux-printer_0.2.0-1_all.deb
 ```
 
-One connected printer is configured automatically. If it was disconnected,
-connect/power it on and run `sudo fichero-printer-setup`. Select FICHERO_USB in
-the application's print dialog. Git, uv, pip, and a source checkout are not needed.
+### Changes since 0.1.0
 
-### Included
+- **Automatic setup on plug-in**: the CUPS queue `FICHERO_D11s` is added when the
+  printer is connected, like other USB printers. `fichero-printer-setup` is gone.
+- **Only distribution dependencies** (`python3-usb`, Ghostscript, CUPS): no bundled
+  Python environment, package size down from 16 MB to about 12 KB, and no longer
+  tied to one Python version.
+- The backend renders with Ghostscript and sends the label itself; CI checks that
+  the USB bytes are identical to fichero-printer's own print path.
+- Labels are thresholded at 50 % gray (no contrast stretching): design them in black.
+- The generic CUPS `usb://` backend no longer offers this printer.
+- New alignment options `FicheroShiftUp` / `FicheroShiftRight` (1/8 mm steps), with
+  calibrated defaults: the print was about 0.5 mm too low and 1 mm too far right.
 
-- Private, pinned Python runtime dependencies and system dependencies managed by apt.
-- Scoped USB permissions, 203 DPI label definition, and an unprivileged CUPS backend.
-- Install/upgrade/remove lifecycle support without changing the default printer.
-- Tag-triggered automated builds, lifecycle validation, and release checksums.
-
-### Validation and limits
-
-Backend tests use mocks plus the real Ubuntu PDF filter/rendering chain.
-Package install, offline upgrade/render, removal/purge, reinstall, and conflict
-protection are exercised in a disposable Ubuntu container. The underlying USB
-printing path was hardware-verified for text, QR, and captioned QR labels; a PDF
-through the prototype CUPS queue also printed correctly.
-
-This package targets distribution CUPS 2.x, not Snap CUPS or CUPS 3. ARM and other
-Ubuntu versions are not supported by this build. Physical completion and paper/
-cover status are not reported by the USB protocol. Failed writes stop the queue
-instead of automatically retrying.
-
-**Prototype users:** the package deliberately refuses to overwrite an unmanaged
-source installation. Follow the README migration steps first; existing source
-installations are not silently replaced.
+Upgrading from 0.1.0 should keep an existing `FICHERO_USB` queue (same URI); this path is not yet tested.
+Printing on Debian 13 and the new backend still need to be confirmed on hardware.

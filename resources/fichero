@@ -1,0 +1,296 @@
+#!/usr/bin/python3 -IB
+"""CUPS backend for AiYin D11s/FICHERO USB label printers (14 x 30 mm gap labels).
+
+CUPS runs this backend as user lp after its normal filters have produced a PDF
+(application/vnd.fichero-pdf, see the PPD):
+
+    fichero                                    list connected printers
+    fichero job user title copies options [file]   print, DEVICE_URI=fichero://usb?serial=S
+
+Ghostscript renders each page at 203 dpi; Python thresholds it to 1 bit and
+crops the 1 mm side margins to the 96-dot printhead. The label is then sent with
+the AiYin raster sequence used by fichero-printer's do_print() over USB.
+Only python3-usb (PyUSB) and the standard library are required.
+"""
+
+import errno
+import os
+import shlex
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+from urllib.parse import parse_qs, quote, urlsplit
+
+VID, PID = 0x09C5, 0x0200
+WIDTH, HEIGHT, MARGIN = 112, 240, 8  # 14 x 30 mm at 203 dpi; 96-dot head centred
+ROW_BYTES = (WIDTH - 2 * MARGIN) // 8  # 12
+THRESHOLD = 128  # Labels and QR codes are black on white: no dithering/contrast.
+MAX_SHIFT = 16  # Calibration shifts, in dots (1/8 mm): at most 2 mm.
+# Alignment measured with calibration labels on a D11s (2026-11): the design
+# printed about 0.5 mm too low and started about 1 mm late. Same as the PPD.
+DEFAULT_SHIFT = {"FicheroShiftUp": 4, "FicheroShiftRight": -8}
+CHUNK, CHUNK_GAP = 256, 0.02  # Hardware-verified USB bulk pacing.
+TIMEOUT_MS = 5000
+MAX_PAGES, MAX_COPIES, MAX_JOB_BYTES = 100, 20, 32 * 1024 * 1024
+OK, FAILED, HOLD, STOP = 0, 1, 3, 4  # cups/backend.h
+DEVICE_ID = "MFG:AiYin;MDL:D11s;CLS:PRINTER;"
+
+
+class Unavailable(Exception):
+    """Nothing was sent: hold the job so it can be resumed later."""
+
+
+def log(level, message):
+    print(f"{level}: {message}", file=sys.stderr, flush=True)
+
+
+# --- USB ---------------------------------------------------------------------
+
+
+def find_devices():
+    import usb.core
+
+    try:
+        return list(usb.core.find(find_all=True, idVendor=VID, idProduct=PID))
+    except usb.core.NoBackendError as exc:
+        raise Unavailable("libusb is not available") from exc
+
+
+def serial_of(device):
+    try:
+        return device.serial_number
+    except (ValueError, OSError):
+        return None  # Descriptor unreadable: usually a missing udev permission.
+
+
+def discover():
+    for device in find_devices():
+        serial = serial_of(device)
+        if serial:
+            uri = "fichero://usb?serial=" + quote(serial, safe="")
+            print(f'direct {uri} "AiYin D11s" "FICHERO D11s USB ({serial})" "{DEVICE_ID}"')
+
+
+class Printer:
+    """A claimed USB Printer Class interface (7/1/2) with its bulk OUT endpoint."""
+
+    def __init__(self, serial):
+        import usb.core
+        import usb.util
+
+        self.util = usb.util
+        self.dev = None
+        devices = find_devices()
+        try:
+            serials = [serial_of(d) for d in devices]
+            if devices and None in serials:
+                raise Unavailable("Cannot read the USB serial; check the udev rule "
+                                  "/usr/lib/udev/rules.d/71-fichero-cups.rules")
+            matches = [d for d, s in zip(devices, serials) if s == serial]
+            if not matches:
+                raise Unavailable(f"D11s USB printer {serial} is not connected")
+            dev = matches[0]
+            intf = usb.util.find_descriptor(
+                dev.get_active_configuration(),
+                custom_match=lambda i: (i.bInterfaceClass, i.bInterfaceSubClass,
+                                        i.bInterfaceProtocol) == (7, 1, 2))
+            if intf is None:
+                raise Unavailable("No bidirectional USB printer interface")
+            self.intf = intf.bInterfaceNumber
+            self.ep = usb.util.find_descriptor(
+                intf, custom_match=lambda e: e.bmAttributes & 3 == 2 and
+                usb.util.endpoint_direction(e.bEndpointAddress) == usb.util.ENDPOINT_OUT)
+            self.detached = False
+            if dev.is_kernel_driver_active(self.intf):  # usblp
+                dev.detach_kernel_driver(self.intf)
+                self.detached = True
+            usb.util.claim_interface(dev, self.intf)
+            self.dev = dev
+        except usb.core.USBError as exc:
+            if exc.errno == errno.EACCES:
+                raise Unavailable("USB permission denied; check the udev rule") from exc
+            if exc.errno == errno.EBUSY:
+                raise Unavailable("USB interface busy; close other D11s clients") from exc
+            raise Unavailable(f"Cannot open the USB printer: {exc}") from exc
+        finally:
+            for device in devices:
+                if device is not self.dev:
+                    usb.util.dispose_resources(device)
+
+    def send(self, data, pause=0.05):
+        chunked = len(data) > CHUNK
+        for i in range(0, len(data), CHUNK):
+            chunk = data[i:i + CHUNK]
+            if self.ep.write(chunk, timeout=TIMEOUT_MS) != len(chunk):
+                raise OSError("Incomplete USB write")
+            if chunked:
+                time.sleep(CHUNK_GAP)
+        time.sleep(pause)
+
+    def label(self, raster, density):
+        """AiYin sequence, as fichero-printer's do_print() sends it over USB."""
+        rows = len(raster) // ROW_BYTES
+        self.send(bytes([0x10, 0xFF, 0x10, 0x00, density]), 0.10)  # density
+        self.send(bytes([0x10, 0xFF, 0x84, 0x00]))  # gap-separated labels
+        self.send(bytes(12))  # wake up
+        self.send(bytes([0x10, 0xFF, 0xFE, 0x01]))  # enable
+        header = bytes([0x1D, 0x76, 0x30, 0, ROW_BYTES, 0, rows & 0xFF, rows >> 8])
+        self.send(header + raster, 0.50)  # GS v 0: raster image
+        self.send(bytes([0x1D, 0x0C]), 0.30)  # feed to the next gap
+        self.send(bytes([0x10, 0xFF, 0xFE, 0x45]))  # stop
+
+    def close(self):
+        if self.dev is None:
+            return
+        try:
+            self.util.release_interface(self.dev, self.intf)
+            if self.detached:
+                self.dev.attach_kernel_driver(self.intf)
+        except Exception as exc:  # The data was already sent.
+            log("DEBUG", f"USB cleanup: {exc}")
+        finally:
+            self.util.dispose_resources(self.dev)
+            self.dev = None
+
+
+# --- Rendering ---------------------------------------------------------------
+
+
+def render(pdf, directory, up=0, right=0):
+    """Ghostscript renders 8-bit gray pages; returns one raster per label."""
+    subprocess.run(
+        ["gs", "-dSAFER", "-dBATCH", "-dNOPAUSE", "-dQUIET", "-sDEVICE=pgmraw",
+         "-r203", "-dFIXEDMEDIA", "-dPDFFitPage", "-dAutoRotatePages=/None",
+         "-dDEVICEWIDTHPOINTS=39.685039", "-dDEVICEHEIGHTPOINTS=85.039370",
+         f"-dLastPage={MAX_PAGES + 1}", f"-sOutputFile={directory}/page-%04d.pgm",
+         "-f", pdf],
+        check=True, timeout=60, stdout=2)  # gs messages go to the CUPS log
+    pages = sorted(f for f in os.listdir(directory) if f.startswith("page-"))
+    if not 1 <= len(pages) <= MAX_PAGES:
+        raise ValueError(f"Job must contain 1 to {MAX_PAGES} labels")
+    return [pgm_to_raster(os.path.join(directory, p), up, right) for p in pages]
+
+
+def pgm_to_raster(path, up=0, right=0):
+    """Binary PGM (112 x 240) -> 96-dot rows, 1 = black, MSB first.
+
+    For a landscape label, the left edge is raster row 0 and the top edge is
+    head dot 95. ``up``/``right`` move the design by whole dots to compensate
+    for the printhead/label alignment of a given printer.
+    """
+    with open(path, "rb") as f:
+        data = f.read()
+    header, pixels = data[:-WIDTH * HEIGHT], data[-WIDTH * HEIGHT:]
+    fields = [word for line in header.split(b"\n") if not line.startswith(b"#")
+              for word in line.split()]
+    if fields != [b"P5", b"%d" % WIDTH, b"%d" % HEIGHT, b"255"]:
+        raise ValueError(f"Unexpected raster from Ghostscript; expected {WIDTH}x{HEIGHT}")
+    blank = b"\xff" * MAX_SHIFT
+    start = MAX_SHIFT + MARGIN - up
+    out = bytearray()
+    for y in range(HEIGHT):
+        source = y - right
+        if not 0 <= source < HEIGHT:
+            out += bytes(ROW_BYTES)
+            continue
+        line = blank + pixels[source * WIDTH:(source + 1) * WIDTH] + blank
+        row = line[start:start + ROW_BYTES * 8]
+        for x in range(0, len(row), 8):
+            byte = 0
+            for pixel in row[x:x + 8]:
+                byte = byte << 1 | (pixel < THRESHOLD)
+            out.append(byte)
+    return bytes(out)
+
+
+# --- CUPS entry point --------------------------------------------------------
+
+
+def parse_uri(uri):
+    parts = urlsplit(uri)
+    query = parse_qs(parts.query)
+    serial = query.get("serial", [""])
+    if (parts.scheme, parts.netloc, parts.path, parts.fragment) != ("fichero", "usb", "", "") \
+            or set(query) != {"serial"} or len(serial) != 1 \
+            or not (serial[0].isascii() and serial[0].isalnum() and len(serial[0]) <= 128):
+        raise ValueError("Expected fichero://usb?serial=USB_SERIAL")
+    return serial[0]
+
+
+def parse_options(options):
+    """Returns (density, up, right) from the CUPS job options string."""
+    values = dict(o.split("=", 1) for o in shlex.split(options) if "=" in o)
+    density = int(values.get("FicheroDensity", "2"))
+    if density not in (0, 1, 2):
+        raise ValueError("FicheroDensity must be 0, 1 or 2")
+    shifts = []
+    for name, default in DEFAULT_SHIFT.items():
+        value = int(values.get(name, default))
+        if not -MAX_SHIFT <= value <= MAX_SHIFT:
+            raise ValueError(f"{name} must be between -{MAX_SHIFT} and {MAX_SHIFT}")
+        shifts.append(value)
+    return density, *shifts
+
+
+def read_pdf(source):
+    data = source.read(MAX_JOB_BYTES + 1)
+    if len(data) > MAX_JOB_BYTES:
+        raise ValueError("Print job exceeds 32 MiB")
+    if not data[:1024].lstrip().startswith(b"%PDF-"):
+        raise ValueError("Expected a PDF from the CUPS filters")
+    return data
+
+
+def main(args):
+    if len(args) == 1:
+        try:
+            discover()
+        except Exception as exc:  # Never hide the other backends from CUPS.
+            log("DEBUG", exc)
+        return OK
+    if len(args) not in (6, 7):
+        log("ERROR", "Usage: fichero job-id user title copies options [file]")
+        return FAILED
+    # Cancelling a job sends SIGTERM: stop between USB writes and release the device.
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(OK))
+    printer = None
+    try:
+        serial = parse_uri(os.environ.get("DEVICE_URI", ""))
+        density, up, right = parse_options(args[5])
+        if not 1 <= int(args[4]) <= MAX_COPIES:
+            raise ValueError(f"Copies must be between 1 and {MAX_COPIES}")
+        # From stdin, pdftopdf already made the copies (cupsManualCopies).
+        copies = int(args[4]) if len(args) == 7 else 1
+        with tempfile.TemporaryDirectory(prefix="fichero-") as tmp:
+            pdf = os.path.join(tmp, "job.pdf")
+            with open(args[6], "rb") if len(args) == 7 else sys.stdin.buffer as source:
+                data = read_pdf(source)
+            with open(pdf, "wb") as out:
+                out.write(data)
+            pages = render(pdf, tmp, up, right)
+        if len(pages) * copies > MAX_PAGES:
+            raise ValueError(f"Job exceeds {MAX_PAGES} labels including copies")
+        printer = Printer(serial)
+        for n in range(len(pages) * copies):
+            printer.label(pages[n % len(pages)], density)
+            log("PAGE", f"{n + 1} 1")
+        log("INFO", "USB transfers completed; physical completion is not reported")
+        return OK
+    except Unavailable as exc:
+        log("ERROR", f"{exc}. Connect/power on the printer, then resume the job.")
+        return HOLD
+    except (ValueError, subprocess.SubprocessError) as exc:
+        log("ERROR", exc)
+        return HOLD
+    except Exception as exc:  # USB failure while sending: a label may be half printed.
+        log("ERROR", f"{exc}. Inspect the label before resuming; no automatic retry.")
+        return STOP
+    finally:
+        if printer:
+            printer.close()
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

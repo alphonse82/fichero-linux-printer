@@ -1,193 +1,120 @@
 # fichero-linux-printer
 
-Print to the AiYin D11s/FICHERO USB label printer from ordinary Linux applications.
+CUPS driver for the AiYin D11s/FICHERO USB label printer: print 14 x 30 mm
+labels (text, QR codes, barcodes) from any Linux application.
 
-[![Tests](https://github.com/krouis/fichero-linux-printer/actions/workflows/tests.yml/badge.svg)](https://github.com/krouis/fichero-linux-printer/actions/workflows/tests.yml)
+[![CI](https://github.com/krouis/fichero-linux-printer/actions/workflows/packages.yml/badge.svg)](https://github.com/krouis/fichero-linux-printer/actions/workflows/packages.yml)
 
-Experimental adapter for Ubuntu 24.04's distribution CUPS 2.x. It adds a separate
-`FICHERO_USB` queue usable through Ubuntu Settings, ordinary application print
-dialogs, `lp`, and `lpstat`. It does not change the default printer, the old D11s
-queue, other printers, Snap CUPS, or the USB firmware. This is a legacy PPD-based
-integration for CUPS 2.x, not an IPP-over-USB or future CUPS 3 driver.
+One architecture-independent package for **Ubuntu 24.04 and Debian 13** (and
+other Debian-based systems with CUPS 2.x). It only depends on distribution
+packages: `python3`, `python3-usb`, `cups`, `cups-filters` and `ghostscript`.
 
-The device is USB Printer Class protocol 2, and requires the D11s raster command
-stream; generic PDF/PostScript/HP drivers cannot drive it directly. Applications
-send their normal jobs to CUPS, which converts them to PDF, applies layout and
-software copies, then hands them to the `fichero` backend. Ghostscript renders
-112 x 240 pixels at 203 DPI. The backend crops the 8-dot side margins to the
-96-dot printhead and prints through the existing paced USB library. Only
-14 x 30 mm gap-separated labels are supported.
-
-## Install the release package
-
-The first release supports **Ubuntu 24.04, amd64 (x86-64), system CUPS 2.x,
-and 14 x 30 mm gap labels**. It is not a Snap CUPS, ARM, or CUPS 3 package.
-Python libraries are bundled privately; no Git, uv, pip, or source checkout is
-needed. `apt` installs the required system printing libraries.
+## Install
 
 Download the `.deb` and `SHA256SUMS` from
 [Releases](https://github.com/krouis/fichero-linux-printer/releases/latest), then:
 
 ```sh
 sha256sum -c SHA256SUMS
-sudo apt install ./fichero-linux-printer_0.1.0-1_amd64.deb
+sudo apt install ./fichero-linux-printer_0.2.0-1_all.deb
 ```
 
-Installation automatically configures one connected, powered-on D11s when CUPS
-is running. If it was disconnected, connect it and run:
-
-```sh
-sudo fichero-printer-setup
-# Select explicitly when more than one printer is connected:
-sudo fichero-printer-setup --serial YOUR_USB_SERIAL
-```
-
-Setup creates `FICHERO_USB`; it never changes the default printer or overwrites
-a queue pointing at another device. Existing queue options and a paused state
-are preserved on upgrades. If CUPS was stopped during installation, start the
-system CUPS service and run setup afterward. Setup does not print a test label.
-USB permissions are scoped to `09c5:0200`, with access for CUPS group `lp` and
-active-seat users. Avoid simultaneous direct CLI and CUPS access.
-
-### Migrating the prototype/source installation
-
-The package refuses to overwrite an unmanaged `/usr/lib/cups/backend/fichero`.
-If you used our earlier source installer, save any desired queue settings, clear
-or cancel pending FICHERO jobs, and remove only that prototype before installing
-the `.deb`:
-
-```sh
-sudo lpadmin -h /run/cups/cups.sock -x FICHERO_USB
-sudo rm /usr/lib/cups/backend/fichero /usr/share/ppd/custom/FICHERO-D11s.ppd \
-  /etc/udev/rules.d/71-fichero-cups.rules
-sudo rm -r /opt/fichero-cups
-sudo udevadm control --reload-rules
-```
-
-This leaves other queues and the optional desktop `70-fichero-usb.rules` intact.
-The installed prototype is not automatically modified by building a package.
-
-### Install from source (development)
-
-```sh
-sudo apt install cups cups-client cups-filters ghostscript libusb-1.0-0
-git clone https://github.com/krouis/fichero-linux-printer.git
-cd fichero-linux-printer
-sh scripts/prepare.sh /tmp/fichero-cups-install
-sudo sh /tmp/fichero-cups-install/install.sh YOUR_USB_SERIAL
-```
-
-The source path additionally requires uv and Python 3.12. Build as the normal
-user; the privileged step uses only the prepared bundle. Source installs live
-under `/opt/fichero-cups`; Debian packages use `/usr/lib/fichero-linux-printer`.
+Plug in the printer: like any other USB printer, a CUPS queue named
+**FICHERO_D11s** is added automatically (a second printer gets
+`FICHERO_D11s_<serial>`). Printers already connected during installation are
+configured immediately. The default printer is never changed, and an existing
+queue for the printer (renamed, paused, with custom options) is left as is.
 
 ## Print
 
-Select **FICHERO D11s USB** / **FICHERO_USB** in the application's print dialog.
-Choose **14 x 30 mm**, single-sided grayscale, and landscape for a horizontal
-30 x 14 mm design. The printable width is approximately 12 mm because the head
-has 96 dots. Start with one page and one copy. A normal A4 test page will be tiny
-or cropped; use a document designed for the label size.
+Select **FICHERO D11s** in the print dialog, paper size **14 x 30 mm**,
+landscape for a horizontal 30 x 14 mm design. From the command line:
 
 ```sh
-lpstat -h /run/cups/cups.sock -p FICHERO_USB -v
-lp -h /run/cups/cups.sock -d FICHERO_USB label.pdf
-lp -h /run/cups/cups.sock -d FICHERO_USB -n 2 -o FicheroDensity=1 label.pdf
-lpstat -h /run/cups/cups.sock -o FICHERO_USB
+lp -d FICHERO_D11s label.pdf
+lp -d FICHERO_D11s -n 3 -o FicheroDensity=1 label.pdf   # 0 light, 1 medium, 2 dark
 ```
 
-Jobs are limited to 32 MiB, 100 labels including copies, and a copies argument of
-1–20. Standard CUPS filters apply page selection, orientation and copy expansion.
-Failed USB transfers stop the queue rather than automatically replaying the job.
-Inspect the label, cancel or release the held job as appropriate, and resume
-with `cupsenable FICHERO_USB`. CUPS “completed” means the data was transferred,
-not that paper sensors or physical completion were verified; USB queries remain
-unsupported. Keep distribution and Snap queues distinct when troubleshooting.
+The printable width is 12 mm (96-dot head). Design labels in **pure black on
+white**: pixels lighter than 50 % gray are left white; there is no dithering,
+which keeps text and QR codes sharp. Jobs are limited to 32 MiB, 100 labels
+and 20 copies.
 
-## Validate without printing
+If the printer is unplugged, the job is held: plug it in and release the job.
+A USB failure while sending stops the queue instead of reprinting: inspect the
+label, then `cupsenable FICHERO_D11s`. "Completed" means the data was sent; the
+USB protocol does not report paper or cover status.
+
+## Alignment
+
+The printhead is not exactly centred on the label. The driver compensates by
+default (measured on a D11s: design moved 0.5 mm up and 1 mm left, as seen on
+a landscape label). Keep at least 2 mm of margin around important content:
+the printhead cannot reach closer to the top edge.
+
+If your labels still look off-centre, adjust in 1/8 mm steps (up to ±2 mm)
+in the printer options or with:
 
 ```sh
-cupstestppd -v resources/FICHERO-D11s.ppd
-uv sync --locked --group test
-uv run --no-sync python -m pytest -q
-cupsfilter -p resources/FICHERO-D11s.ppd -e -m printer/fichero \
-  -i application/pdf -o PageSize=14x30mm label.pdf > processed.pdf
+sudo lpadmin -p FICHERO_D11s -o FicheroShiftUp=4 -o FicheroShiftRight=-8
 ```
 
-The automated CUPS/Ghostscript integration test runs when those tools are
-installed and otherwise skips; all other backend tests use mocks and temporary
-files, never hardware. Hardware validation: Ubuntu 24.04, D11s firmware 2.4.9, 14 x 30 mm gap labels;
-a PDF submitted through the normal CUPS queue printed correctly. Firmware is
-not restricted in software. Other distributions and label sizes are unverified.
+`FicheroShiftUp` > 0 moves the print up, `FicheroShiftRight` < 0 moves it left
+(landscape orientation). Queue settings are kept across package upgrades.
 
-## Upgrade or remove the Debian package
+## How it works
+
+```
+application ─► CUPS filters (PDF, page selection, orientation, copies)
+            ─► /usr/lib/cups/backend/fichero (runs as user lp)
+                 Ghostscript: 203 dpi gray raster, 112 x 240 dots per label
+                 threshold, crop the 1 mm side margins to the 96-dot head
+                 PyUSB: AiYin raster command sequence, 256-byte paced writes
+```
+
+| File | Role |
+|---|---|
+| `resources/fichero` | CUPS backend (≈ 250 lines, Python standard library + PyUSB) |
+| `resources/FICHERO-D11s.ppd` | Label size, density option, IEEE-1284 device ID |
+| `resources/71-fichero-cups.rules` | USB access for CUPS (group `lp`) and the seat user; starts queue creation on plug-in |
+| `resources/fichero-printer@.service` | Runs `autoconfig SERIAL` when the printer is plugged in |
+| `resources/autoconfig` | Adds the CUPS queue unless one already exists for that printer |
+| `resources/fichero.usb-quirks` | Hides the printer from CUPS's generic `usb://` backend, which cannot drive it |
+
+The print command sequence is the one used over USB by
+[fichero-printer](https://github.com/0xMH/fichero-printer); CI checks that the
+backend sends exactly the same bytes as that library (pinned commit
+`7948e58` of the [krouis fork](https://github.com/krouis/fichero-printer)).
+
+## Remove
 
 ```sh
-sudo apt install ./fichero-linux-printer_NEW-VERSION_amd64.deb
 sudo apt remove fichero-linux-printer
-# Or remove all package state:
-sudo apt purge fichero-linux-printer
 ```
 
-Removal deletes only the queue whose URI still matches the package's ownership
-record. A queue reassigned to a different printer is preserved. Other printers
-and their defaults are unchanged. Keep CUPS running during removal so the queue
-can be deleted; if it was stopped, remove any leftover `FICHERO_USB` queue later
-with `sudo lpadmin -x FICHERO_USB`. Removing the package does not remove a separate
-prototype installation under `/opt`.
+Removal deletes the queues that use the `fichero://` backend (they cannot
+print without it) and nothing else.
 
-## Build and publish
-
-Build on Ubuntu 24.04 amd64 with uv, system Python 3.12, and `dpkg-deb`:
+## Develop
 
 ```sh
-sh scripts/build-deb.sh
-sh scripts/test-deb.sh dist/*.deb
+sudo apt install python3-pytest python3-usb cups cups-filters ghostscript
+python3 -m pytest -q tests          # fake USB device, real Ghostscript/CUPS rendering
+sh scripts/build-deb.sh             # dist/fichero-linux-printer_VERSION-1_all.deb
+sh scripts/test-deb.sh dist/*.deb debian:13     # lifecycle test in a disposable container
+sh scripts/test-deb.sh dist/*.deb ubuntu:24.04
 ```
 
-The second command uses a disposable Ubuntu Docker container, never the host
-print server. It checks install, genuine version upgrade, PDF rendering, remove,
-purge, reinstall, unmanaged-install conflicts, and preservation of another queue
-and its default. Network access is disconnected before package installation;
-maintainer scripts never download dependencies. The ordinary backend unit tests
-use mocked USB devices. No lifecycle test needs printer hardware.
+The USB stream comparison test runs when fichero-printer and its dependencies
+(`python3-pil python3-numpy python3-bleak`) are importable, for example with
+`PYTHONPATH=/path/to/fichero-printer`. The lifecycle test installs the package
+offline, simulates hotplug, checks queue preservation, upgrade, rendering as
+user `lp`, remove and purge.
 
-The **Debian package and release** workflow builds/tests every push to `main`
-and pull request, saving the `.deb` and checksums as an Actions artifact. To
-publish, update the version in `pyproject.toml` and `RELEASE_NOTES.md`, merge the
-change, and push a matching `vX.Y.Z` tag. The tag workflow verifies the version,
-repeats the checks, and publishes the tested artifacts to GitHub Releases.
-No separate switch is needed to enable Releases.
+To release: update `VERSION` and `RELEASE_NOTES.md`, then push a `vX.Y.Z` tag.
+CI builds, tests on Ubuntu 24.04 and Debian 13, and publishes the release.
 
-References: [CUPS filter/backend programming](https://openprinting.github.io/cups/doc/api-filter.html),
-[CUPS PPD extensions](https://openprinting.github.io/cups/doc/spec-ppd.html).
+## License
 
-
-## Architecture and dependency
-
-The [fichero-printer](https://github.com/0xMH/fichero-printer) project owns the
-printer protocol, image encoding, and USB/Bluetooth transports. This repository
-owns the Linux print adapter, PPD, permissions, and installation lifecycle; it
-does not copy or fork the printer protocol. The adapter calls the core library's
-existing USB print pipeline, currently via `fichero.cli.do_print`.
-
-Until upstream publishes a release containing USB support, the dependency is
-pinned to commit `7948e5867600c152034e03c99ced51ea8ef41de7` of the
-[krouis fork](https://github.com/krouis/fichero-printer). `uv.lock` records the
-resolved dependencies. Updating this pin should be explicit and tested. The
-current dependency also installs the core library's Bluetooth dependencies even
-though this adapter uses USB only. The source preparation/package build downloads dependencies; the privileged
-install step operates entirely on bundled files. System dependencies are
-installed by apt.
-
-## Roadmap
-
-- Broader distribution testing and additional verified label sizes.
-- Evaluate a PAPPL-based Printer Application to expose the device over IPP and
-  support CUPS 3, rather than relying on legacy PPD drivers indefinitely.
-
-## License and attribution
-
-MIT. Built on the MIT-licensed fichero-printer project by 0xMH and contributors.
-The USB transport and Python CI were contributed separately in
-[upstream PR #24](https://github.com/0xMH/fichero-printer/pull/24).
+MIT. The printer protocol was reverse-engineered by the MIT-licensed
+fichero-printer project by 0xMH and contributors.
