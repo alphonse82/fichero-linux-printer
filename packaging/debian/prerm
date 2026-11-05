@@ -1,6 +1,11 @@
 #!/bin/sh
 set -e
-case "$1" in
-    remove) fichero-printer-setup --remove-managed ;;
-esac
+if [ "$1" = remove ]; then
+    # Queues using this package's backend cannot print without it.
+    LC_ALL=C lpstat -h /run/cups/cups.sock -v 2>/dev/null |
+        awk '$NF ~ /^fichero:/ { sub(/:$/, "", $3); print $3 }' |
+        while read -r queue; do
+            lpadmin -h /run/cups/cups.sock -x "$queue" || true
+        done
+fi
 exit 0

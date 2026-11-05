@@ -1,0 +1,34 @@
+#!/bin/sh
+# Add a CUPS queue for a connected D11s, like CUPS does for other USB printers.
+# Run by udev/systemd on hotplug (fichero-printer@SERIAL.service) and by postinst.
+# An existing queue for this printer, under any name, is never modified.
+set -eu
+serial=${1:?Usage: autoconfig USB_SERIAL}
+case "$serial" in
+    *[!A-Za-z0-9]*) echo "Unsupported USB serial: $serial" >&2; exit 1 ;;
+esac
+uri="fichero://usb?serial=$serial"
+server=/run/cups/cups.sock
+export LC_ALL=C
+exec 9>/run/fichero-autoconfig.lock  # Serialize concurrent hotplug events.
+flock 9
+# Wait for the scheduler, which may still be starting at boot.
+tries=30
+until [ "$(lpstat -h "$server" -r 2>/dev/null)" = "scheduler is running" ]; do
+    tries=$((tries - 1))
+    [ "$tries" -gt 0 ] || { echo 'CUPS is not running; queue not created' >&2; exit 0; }
+    sleep 1
+done
+if lpstat -h "$server" -v 2>/dev/null | awk -v uri="$uri" '$NF == uri { found = 1 } END { exit !found }'; then
+    exit 0
+fi
+name=FICHERO_D11s
+if lpstat -h "$server" -p "$name" >/dev/null 2>&1; then
+    name="FICHERO_D11s_$serial"
+fi
+lpadmin -h "$server" -p "$name" -E -v "$uri" \
+    -P /usr/share/ppd/fichero/FICHERO-D11s.ppd \
+    -D 'FICHERO D11s' -L "USB $serial" \
+    -o printer-is-shared=false -o printer-error-policy=stop-printer \
+    -o PageSize=14x30mm
+echo "Added CUPS queue $name for $uri"

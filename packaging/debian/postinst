@@ -1,13 +1,22 @@
 #!/bin/sh
 set -e
-case "$1" in
-    configure)
-        if [ -S /run/udev/control ]; then
-            udevadm control --reload-rules
-            udevadm trigger --action=change --subsystem-match=usb --attr-match=idVendor=09c5 --attr-match=idProduct=0200
-            udevadm settle --timeout=10 || true
-        fi
-        fichero-printer-setup --auto
-        ;;
-esac
+if [ "$1" = configure ]; then
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload || true
+    fi
+    if [ -S /run/udev/control ]; then
+        udevadm control --reload-rules || true
+        # Apply the permissions to a printer that is already plugged in.
+        udevadm trigger --action=change --subsystem-match=usb \
+            --attr-match=idVendor=09c5 --attr-match=idProduct=0200 || true
+        udevadm settle --timeout=10 || true
+    fi
+    # Printers already connected do not get a hotplug event: add their queues now.
+    for device in /sys/bus/usb/devices/*; do
+        [ "$(cat "$device/idVendor" 2>/dev/null)" = 09c5 ] &&
+        [ "$(cat "$device/idProduct" 2>/dev/null)" = 0200 ] &&
+        [ -r "$device/serial" ] || continue
+        /usr/lib/fichero-d11s-cups/autoconfig "$(cat "$device/serial")" || true
+    done
+fi
 exit 0

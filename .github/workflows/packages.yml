@@ -1,4 +1,4 @@
-name: Debian package and release
+name: CI and release
 
 on:
   push:
@@ -10,66 +10,91 @@ on:
 permissions:
   contents: read
 
+env:
+  # Reference implementation the backend's USB byte stream is compared against.
+  FICHERO_PRINTER_REPO: https://github.com/krouis/fichero-printer.git
+  FICHERO_PRINTER_COMMIT: 7948e5867600c152034e03c99ced51ea8ef41de7
+
 jobs:
-  package:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['ubuntu:24.04', 'debian:12', 'debian:13']
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
-    env:
-      UV_PYTHON: '3.12'
+    container: ${{ matrix.image }}
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v7
-        with:
-          enable-cache: false
-      - name: Install rendering tools
+      - name: Install distribution packages
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update -qq
-          sudo apt-get install -y --no-install-recommends cups cups-client cups-filters ghostscript
-      - name: Test Python and validate scripts
+          apt-get update -qq
+          apt-get install -y -qq --no-install-recommends ca-certificates git \
+            python3 python3-pytest python3-usb cups cups-client cups-filters ghostscript \
+            python3-pil python3-numpy python3-bleak
+      - uses: actions/checkout@v7
+      - name: Fetch reference fichero-printer (test only, never packaged)
         run: |
-          uv sync --locked --group test
-          uv run --no-sync python -m pytest -q
-          sh -n scripts/*.sh packaging/debian/* packaging/test-installed.sh resources/backend
+          git init -q /opt/fichero-printer
+          git -C /opt/fichero-printer fetch -q --depth 1 "$FICHERO_PRINTER_REPO" "$FICHERO_PRINTER_COMMIT"
+          git -C /opt/fichero-printer checkout -q FETCH_HEAD
+      - name: Validate scripts and PPD
+        run: |
+          sh -n scripts/*.sh resources/autoconfig packaging/debian/* packaging/test-installed.sh
           cupstestppd -q resources/FICHERO-D11s.ppd
+      - name: Unit tests and USB stream comparison
+        run: PYTHONPATH=/opt/fichero-printer python3 -m pytest -q -rs tests
+
+  package:
+    needs: test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
       - name: Check release version matches tag
         if: startsWith(github.ref, 'refs/tags/')
-        env:
-          RELEASE_TAG: ${{ github.ref_name }}
-        run: |
-          python3 - <<'PY'
-          import os, tomllib
-          version = tomllib.load(open('pyproject.toml', 'rb'))['project']['version']
-          assert os.environ['RELEASE_TAG'] == f'v{version}'
-          PY
-      - name: Build Ubuntu 24.04 amd64 package
+        run: test "${{ github.ref_name }}" = "v$(cat VERSION)"
+      - name: Build architecture-independent package
         run: sh scripts/build-deb.sh
-      - name: Test package lifecycle offline in disposable Ubuntu
-        run: sh scripts/test-deb.sh dist/*.deb
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
-          name: ubuntu-24.04-amd64
-          path: |
-            dist/*.deb
-            dist/SHA256SUMS
+          name: deb
+          path: dist/
           if-no-files-found: error
+
+  lifecycle:
+    needs: package
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ['ubuntu:24.04', 'debian:12', 'debian:13']
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          name: deb
+          path: dist
+      - name: Install, hotplug, upgrade, remove offline in a disposable container
+        run: sh scripts/test-deb.sh dist/*.deb ${{ matrix.image }}
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: package
+    needs: lifecycle
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
         with:
-          name: ubuntu-24.04-amd64
+          name: deb
           path: dist
       - name: Publish installable release
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ github.ref_name }}
         run: |
-          gh release create "$RELEASE_TAG" dist/*.deb dist/SHA256SUMS \
-            --verify-tag --title "FICHERO Linux Printer $RELEASE_TAG" \
+          gh release create "${{ github.ref_name }}" dist/*.deb dist/SHA256SUMS \
+            --verify-tag --title "FICHERO Linux Printer ${{ github.ref_name }}" \
             --notes-file RELEASE_NOTES.md

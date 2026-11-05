@@ -1,0 +1,3 @@
+# AiYin D11s/FICHERO needs the fichero backend (raster commands, not PDF):
+# hide it from the generic CUPS usb backend so no broken usb:// queue is offered.
+0x09c5 0x0200 blacklist
