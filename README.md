@@ -1,4 +1,4 @@
-# fichero-linux-printer
+# fichero-d11s-cups
 
 CUPS driver for the AiYin D11s/FICHERO USB label printer: print 14 x 30 mm
 labels (text, QR codes, barcodes) from any Linux application.
@@ -7,6 +7,13 @@ labels (text, QR codes, barcodes) from any Linux application.
 
 Personal, unofficial project: not affiliated with or supported by AiYin or
 FICHERO. Use at your own risk.
+
+This project is inspired by
+[krouis/fichero-linux-printer](https://github.com/krouis/fichero-linux-printer)
+but is independent and is not meant to replace it: labels are generated
+differently (Ghostscript raster, thresholded and sent directly over USB, without
+the fichero-printer library at run time). The two packages cannot be installed
+together, since both provide the `fichero` CUPS backend.
 
 One architecture-independent package for **Ubuntu 24.04, Debian 12 and Debian 13** (and
 other Debian-based systems with CUPS 2.x). It only depends on distribution
@@ -19,7 +26,7 @@ Download the `.deb` and `SHA256SUMS` from
 
 ```sh
 sha256sum -c SHA256SUMS
-sudo apt install ./fichero-linux-printer_0.2.0-1_all.deb
+sudo apt install ./fichero-d11s-cups_0.1.0-1_all.deb
 ```
 
 Plug in the printer: like any other USB printer, a CUPS queue named
@@ -92,7 +99,7 @@ backend sends exactly the same bytes as that library (pinned commit
 ## Remove
 
 ```sh
-sudo apt remove fichero-linux-printer
+sudo apt remove fichero-d11s-cups
 ```
 
 Removal deletes the queues that use the `fichero://` backend (they cannot
@@ -103,7 +110,7 @@ print without it) and nothing else.
 ```sh
 sudo apt install python3-pytest python3-usb cups cups-filters ghostscript
 python3 -m pytest -q tests          # fake USB device, real Ghostscript/CUPS rendering
-sh scripts/build-deb.sh             # dist/fichero-linux-printer_VERSION-1_all.deb
+sh scripts/build-deb.sh             # dist/fichero-d11s-cups_VERSION-1_all.deb
 sh scripts/test-deb.sh dist/*.deb debian:13     # lifecycle test in a disposable container
 sh scripts/test-deb.sh dist/*.deb debian:12
 sh scripts/test-deb.sh dist/*.deb ubuntu:24.04

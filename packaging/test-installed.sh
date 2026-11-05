@@ -5,7 +5,7 @@ set -eu
 server=/run/cups/cups.sock
 step() { printf '\n=== %s\n' "$*"; }
 queue_for() { LC_ALL=C lpstat -h "$server" -v | awk -v u="fichero://usb?serial=$1" '$NF == u { sub(/:$/, "", $3); print $3 }'; }
-autoconfig=/usr/lib/fichero-linux-printer/autoconfig
+autoconfig=/usr/lib/fichero-d11s-cups/autoconfig
 
 step 'Install with apt, offline, before CUPS is running (dependencies resolved from Depends)'
 apt-get install -y -qq --no-install-recommends /tmp/package.deb
@@ -65,18 +65,27 @@ LC_ALL=C lpstat -h "$server" -p FICHERO_D11s | grep -q disabled
 lpoptions -h "$server" -p FICHERO_D11s -l | grep -q 'FicheroDensity.*\*1'
 
 step 'Remove deletes only fichero queues; purge leaves nothing'
-dpkg --remove fichero-linux-printer
+dpkg --remove fichero-d11s-cups
 [ -z "$(LC_ALL=C lpstat -h "$server" -v | grep fichero: || true)" ]
 LC_ALL=C lpstat -h "$server" -d | grep -q KEEP_ME
 test ! -e /usr/lib/cups/backend/fichero
-dpkg --purge fichero-linux-printer
-test ! -e /usr/lib/fichero-linux-printer
+dpkg --purge fichero-d11s-cups
+test ! -e /usr/lib/fichero-d11s-cups
 
 step 'Reinstall'
 dpkg -i /tmp/package.deb
 $autoconfig EXAMPLE123
 [ "$(queue_for EXAMPLE123)" = FICHERO_D11s ]
-dpkg --purge fichero-linux-printer
+dpkg --purge fichero-d11s-cups
 lpstat -h "$server" -p KEEP_ME >/dev/null
+
+step 'Refuses to coexist with the separate fichero-linux-printer package'
+mkdir -p /tmp/other/DEBIAN
+printf 'Package: fichero-linux-printer\nVersion: 0.1.0-1\nArchitecture: all\nMaintainer: test <test@example.invalid>\nDescription: stand-in\n' \
+    > /tmp/other/DEBIAN/control
+dpkg-deb --root-owner-group --build /tmp/other /tmp/other.deb >/dev/null
+dpkg -i /tmp/other.deb
+if dpkg -i /tmp/package.deb; then echo 'Installed alongside fichero-linux-printer' >&2; exit 1; fi
+dpkg --purge fichero-linux-printer
 
 printf '\nInstall, hotplug queue creation, replug, upgrade, offline render as lp, remove, purge, reinstall: PASS\n'

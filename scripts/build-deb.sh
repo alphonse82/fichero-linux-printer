@@ -11,10 +11,10 @@ mkdir -p "$out"
 work=$(mktemp -d)
 trap 'rm -rf "$work"' EXIT HUP INT TERM
 root="$work/root"
-doc="$root/usr/share/doc/fichero-linux-printer"
+doc="$root/usr/share/doc/fichero-d11s-cups"
 install -d "$root/DEBIAN" "$doc"
 install -D -m 755 resources/fichero "$root/usr/lib/cups/backend/fichero"
-install -D -m 755 resources/autoconfig "$root/usr/lib/fichero-linux-printer/autoconfig"
+install -D -m 755 resources/autoconfig "$root/usr/lib/fichero-d11s-cups/autoconfig"
 install -D -m 644 resources/FICHERO-D11s.ppd "$root/usr/share/ppd/fichero/FICHERO-D11s.ppd"
 install -D -m 644 resources/fichero.usb-quirks "$root/usr/share/cups/usb/fichero.usb-quirks"
 install -D -m 644 resources/71-fichero-cups.rules "$root/usr/lib/udev/rules.d/71-fichero-cups.rules"
@@ -23,7 +23,7 @@ install -m 644 LICENSE "$doc/copyright"
 install -m 644 README.md "$doc/README.md"
 install -m 755 packaging/debian/postinst packaging/debian/prerm packaging/debian/postrm "$root/DEBIAN/"
 cat > "$root/DEBIAN/control" <<CONTROL
-Package: fichero-linux-printer
+Package: fichero-d11s-cups
 Version: $version-1
 Architecture: all
 Maintainer: Alphonse <ob_github@obconseil.eu>
@@ -31,11 +31,14 @@ Section: utils
 Priority: optional
 Installed-Size: $(du -sk "$root/usr" | cut -f1)
 Depends: python3, python3-usb, cups (>= 2.4), cups (<< 3.0), cups-client, cups-filters, ghostscript
+Conflicts: fichero-linux-printer
 Homepage: https://github.com/alphonse82/fichero-linux-printer
 Description: CUPS driver for AiYin D11s/FICHERO USB label printers
  Prints 14 x 30 mm gap labels (text, QR codes) from any application.
+ Independent project; it conflicts with the separate fichero-linux-printer
+ package because both drive the printer through a "fichero" CUPS backend.
  The CUPS queue is added automatically when the printer is plugged in.
 CONTROL
-deb="fichero-linux-printer_${version}-1_all.deb"
+deb="fichero-d11s-cups_${version}-1_all.deb"
 dpkg-deb --root-owner-group --build "$root" "$out/$deb"
 (cd "$out" && sha256sum "$deb" > SHA256SUMS)

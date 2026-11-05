@@ -1,9 +1,6 @@
 #!/bin/sh
 set -e
 if [ "$1" = configure ]; then
-    # Leftover ownership marker from 0.1.x (queues are now managed by URI).
-    rm -f /var/lib/fichero-linux-printer/queue-uri
-    rmdir /var/lib/fichero-linux-printer 2>/dev/null || true
     if [ -d /run/systemd/system ]; then
         systemctl daemon-reload || true
     fi
@@ -19,7 +16,7 @@ if [ "$1" = configure ]; then
         [ "$(cat "$device/idVendor" 2>/dev/null)" = 09c5 ] &&
         [ "$(cat "$device/idProduct" 2>/dev/null)" = 0200 ] &&
         [ -r "$device/serial" ] || continue
-        /usr/lib/fichero-linux-printer/autoconfig "$(cat "$device/serial")" || true
+        /usr/lib/fichero-d11s-cups/autoconfig "$(cat "$device/serial")" || true
     done
 fi
 exit 0
